@@ -11,10 +11,12 @@ dishRouter.use(bodyParser.json());
 dishRouter.route('/')
 
 	.get(Verify.verifyOrdinaryUser, function(req, res, next) {
-		Dishes.find({}, function(err, dish) {
-			if (err) throw err;
-			res.json(dish);
-		});
+		Dishes.find({})
+			.populate('comments.postedBy')
+			.exec(function(err, dish) {
+				if (err) throw err;
+				res.json(dish);
+			});
 	})
 
 	.post(Verify.verifyAdminUser, function(req, res, next) {
@@ -28,7 +30,7 @@ dishRouter.route('/')
 		});
 	})
 
-	.delete(Verify.verifyAdminUser, function(req, res, next) {
+	.delete(Verify.verifyOrdinaryUser, Verify.verifyAdminUser, function(req, res, next) {
 		Dishes.remove({}, function(err, resp) {
 			if (err) throw err;
 			res.json(resp);
@@ -38,13 +40,15 @@ dishRouter.route('/')
 dishRouter.route('/:dishID')
 
 	.get(Verify.verifyOrdinaryUser, function(req, res, next) {
-		Dishes.findById(req.params.dishID, function(err, dish) {
-			if (err) throw err;
-			res.json(dish);
-		});
+		Dishes.findById(req.params.dishID)
+			.populate('comments.postedBy')
+			.exec(function(err, dish) {
+				if (err) throw err;
+				res.json(dish);
+			});
 	})
 
-	.put(Verify.verifyAdminUser, function(req, res, next) {
+	.put(Verify.verifyOrdinaryUser, Verify.verifyAdminUser, function(req, res, next) {
 		Dishes.findByIdAndUpdate(req.params.dishID, {
 			$set: req.body
 		}, {
@@ -55,7 +59,7 @@ dishRouter.route('/:dishID')
 		});
 	})
 
-	.delete(Verify.verifyAdminUser, function(req, res, next) {
+	.delete(Verify.verifyOrdinaryUser, Verify.verifyAdminUser, function(req, res, next) {
 		Dishes.findByIdAndUpdate(req.params.dishID, function(err, resp) {
 			if (err) throw err;
 			res.json(resp);
@@ -63,16 +67,22 @@ dishRouter.route('/:dishID')
 	});
 
 dishRouter.route('/:dishID/comments')
-	.get(Verify.verifyOrdinaryUser, function(req, res, next) {
-		Dishes.findById(req.params.dishID, function(err, dish) {
-			if (err) throw err;
-			res.json(dish.comments);
-		});
+	
+	.all(Verify.verifyOrdinaryUser)
+
+	.get(function(req, res, next) {
+		Dishes.findById(req.params.dishID)
+			.populate('comments.postedBy')
+			.exec(function(err, dish) {
+				if (err) throw err;
+				res.json(dish.comments);
+			});
 	})
 
-	.post(Verify.verifyAdminUser, function(req, res, next) {
+	.post(function(req, res, next) {
 		Dishes.findById(req.params.dishID, function(err, dish) {
 			if (err) throw err;
+			req.body.postedBy = req.decoded._doc._id;
 			dish.comments.push(req.body);
 			dish.save(function(err, dish) {
 				if (err) throw err;
@@ -97,19 +107,25 @@ dishRouter.route('/:dishID/comments')
 	});
 
 dishRouter.route('/:dishID/comments/:commentID')
-	.get(Verify.verifyOrdinaryUser, function(req, res, next) {
-		Dishes.findById(req.params.dishID, function(err, dish) {
-			if (err) throw err;
-			res.json(dish.comments.id(req.params.commentID));
-		});
+
+	.all(Verify.verifyOrdinaryUser)
+
+	.get(function(req, res, next) {
+		Dishes.findById(req.params.dishID)
+			.populate('comments.postedBy')
+			.exec(function(err, dish) {
+				if (err) throw err;
+				res.json(dish.comments.id(req.params.commentID));
+			});
 	})
 
-	.put(Verify.verifyAdminUser, function(req, res, next) {
+	.put(function(req, res, next) {
 		// we delete the existing comment and insert the updated
 		// comment as a new comment
 		Dishes.findById(req.params.dishID, function(err, dish) {
 			if (err) throw err;
 			dish.comments.id(req.params.commentID).remove();
+			req.body.postedBy = req.decoded._doc._id;
 			dish.comments.push(req.body);
 			dish.save(function(err, dish) {
 				if (err) throw err;
@@ -119,9 +135,14 @@ dishRouter.route('/:dishID/comments/:commentID')
 		});
 	})
 
-	.delete(Verify.verifyAdminUser, function(req, res, next) {
+	.delete(function(req, res, next) {
 		Dishes.findById(req.params.dishID, function(err, dish) {
-			if (err) throw err;
+			if (dish.comments.id(req.params.commentID).postedBy
+				!= req.decoded._doc._id) {
+				var err = new Error('You are not authorized to perform this operation');
+				err.status = 403;
+				return next(err);
+			}
 			dish.comments.id(req.params.commentID).remove();
 			dish.save(function(err, resp) {
 				if (err) throw err;

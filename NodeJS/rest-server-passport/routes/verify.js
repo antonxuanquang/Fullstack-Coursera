@@ -48,7 +48,6 @@ exports.verifyAdminUser = function(req, res, next) {
 				return next(err);
 			} else {
 				if (decoded._doc.admin) {
-					console.log(decoded);
 					// if everything is good, save to request for use in other routes
 					req.decoded = decoded;
 					next();
